@@ -39,9 +39,7 @@ def get_dag_state_info():
     with session_scope(Session) as session:
         dag_status_query = (
             session.query(
-                DagRun.dag_id,
-                DagRun.state,
-                func.count(DagRun.state).label("count"),
+                DagRun.dag_id, DagRun.state, func.count(DagRun.state).label("count"),
             )
             .group_by(DagRun.dag_id, DagRun.state)
             .subquery()
@@ -54,10 +52,7 @@ def get_dag_state_info():
                 DagModel.owners,
             )
             .join(DagModel, DagModel.dag_id == dag_status_query.c.dag_id)
-            .filter(
-                DagModel.is_active == True,  # noqa
-                DagModel.is_paused == False,
-            )
+            .filter(DagModel.is_active == True, DagModel.is_paused == False,)  # noqa
             .all()
         )
 
@@ -84,9 +79,7 @@ def get_dag_duration_info():
         dag_start_dt_query = (
             session.query(
                 max_execution_dt_query.c.dag_id,
-                max_execution_dt_query.c.max_execution_dt.label(
-                    "execution_date"
-                ),
+                max_execution_dt_query.c.max_execution_dt.label("execution_date"),
                 func.min(TaskInstance.start_date).label("start_date"),
             )
             .join(
@@ -116,8 +109,7 @@ def get_dag_duration_info():
                 DagRun,
                 and_(
                     DagRun.dag_id == dag_start_dt_query.c.dag_id,
-                    DagRun.execution_date
-                    == dag_start_dt_query.c.execution_date,
+                    DagRun.execution_date == dag_start_dt_query.c.execution_date,
                 ),
             )
             .all()
@@ -139,9 +131,7 @@ def get_task_state_info():
                 TaskInstance.state,
                 func.count(TaskInstance.dag_id).label("value"),
             )
-            .group_by(
-                TaskInstance.dag_id, TaskInstance.task_id, TaskInstance.state
-            )
+            .group_by(TaskInstance.dag_id, TaskInstance.task_id, TaskInstance.state)
             .subquery()
         )
         return (
@@ -153,10 +143,7 @@ def get_task_state_info():
                 DagModel.owners,
             )
             .join(DagModel, DagModel.dag_id == task_status_query.c.dag_id)
-            .filter(
-                DagModel.is_active == True,  # noqa
-                DagModel.is_paused == False,
-            )
+            .filter(DagModel.is_active == True, DagModel.is_paused == False,)  # noqa
             .all()
         )
 
@@ -171,10 +158,7 @@ def get_task_failure_counts():
                 func.count(TaskFail.dag_id).label("count"),
             )
             .join(DagModel, DagModel.dag_id == TaskFail.dag_id,)
-            .filter(
-                DagModel.is_active == True,  # noqa
-                DagModel.is_paused == False,
-            )
+            .filter(DagModel.is_active == True, DagModel.is_paused == False,)  # noqa
             .group_by(TaskFail.dag_id, TaskFail.task_id,)
         )
 
@@ -195,10 +179,7 @@ def get_xcom_params(task_id):
             max_execution_dt_query,
             and_(
                 (XCom.dag_id == max_execution_dt_query.c.dag_id),
-                (
-                    XCom.execution_date
-                    == max_execution_dt_query.c.max_execution_dt
-                ),
+                (XCom.execution_date == max_execution_dt_query.c.max_execution_dt),
             ),
         )
         if task_id == "all":
@@ -286,9 +267,7 @@ def get_dag_scheduler_delay():
     """Compute DAG scheduling delay."""
     with session_scope(Session) as session:
         return (
-            session.query(
-                DagRun.dag_id, DagRun.execution_date, DagRun.start_date,
-            )
+            session.query(DagRun.dag_id, DagRun.execution_date, DagRun.start_date,)
             .filter(DagRun.dag_id == CANARY_DAG,)
             .order_by(DagRun.execution_date.desc())
             .limit(1)
@@ -305,8 +284,7 @@ def get_task_scheduler_delay():
                 func.max(TaskInstance.start_date).label("max_start"),
             )
             .filter(
-                TaskInstance.dag_id == CANARY_DAG,
-                TaskInstance.queued_dttm.isnot(None),
+                TaskInstance.dag_id == CANARY_DAG, TaskInstance.queued_dttm.isnot(None),
             )
             .group_by(TaskInstance.queue)
             .subquery()
@@ -325,10 +303,7 @@ def get_task_scheduler_delay():
                     TaskInstance.start_date == task_status_query.c.max_start,
                 ),
             )
-            .filter(
-                TaskInstance.dag_id
-                == CANARY_DAG,  # Redundant, for performance.
-            )
+            .filter(TaskInstance.dag_id == CANARY_DAG,)  # Redundant, for performance.
             .all()
         )
 
@@ -343,6 +318,26 @@ def get_num_queued_tasks():
         )
 
 
+def get_dag_labels(dag_id):
+    # reuse airflow webserver dagbag
+    if RBAC:
+        from airflow.www_rbac.views import dagbag
+    else:
+        from airflow.www.views import dagbag
+
+    dag = dagbag.get_dag(dag_id)
+
+    if dag is None:
+        return [], []
+
+    labels = dag.params.get("labels")
+
+    if labels is None:
+        return [], []
+
+    return list(labels.keys()), list(labels.values())
+
+
 class MetricsCollector(object):
     """Metrics Collector for prometheus."""
 
@@ -353,11 +348,13 @@ class MetricsCollector(object):
         """Collect metrics."""
         # Task metrics
         task_info = get_task_state_info()
+
         t_state = GaugeMetricFamily(
             "airflow_task_status",
             "Shows the number of task instances with particular status",
             labels=["dag_id", "task_id", "owner", "status"],
         )
+
         for task in task_info:
             t_state.add_metric(
                 [task.dag_id, task.task_id, task.owners, task.state or "none"],
@@ -371,9 +368,7 @@ class MetricsCollector(object):
             labels=["task_id", "dag_id", "execution_date"],
         )
         for task in get_task_duration_info():
-            task_duration_value = (
-                task.end_date - task.start_date
-            ).total_seconds()
+            task_duration_value = (task.end_date - task.start_date).total_seconds()
             task_duration.add_metric(
                 [task.task_id, task.dag_id, str(task.execution_date.date())],
                 task_duration_value,
@@ -386,66 +381,76 @@ class MetricsCollector(object):
             labels=["dag_id", "task_id"],
         )
         for task in get_task_failure_counts():
-            task_failure_count.add_metric(
-                [task.dag_id, task.task_id], task.count
-            )
+            task_failure_count.add_metric([task.dag_id, task.task_id], task.count)
         yield task_failure_count
 
         # Dag Metrics
+
+        # Dag Metrics
         dag_info = get_dag_state_info()
+        labels = ["dag_id", "owner", "status"]
         d_state = GaugeMetricFamily(
             "airflow_dag_status",
             "Shows the number of dag starts with this status",
-            labels=["dag_id", "owner", "status"],
+            labels=labels,
         )
         for dag in dag_info:
-            d_state.add_metric([dag.dag_id, dag.owners, dag.state], dag.count)
+            k, v = get_dag_labels(dag.dag_id)
+            d_state._labelnames = labels + k
+            d_state.add_metric([dag.dag_id, dag.owners, dag.state] + v, dag.count)
         yield d_state
 
+        labels = ["dag_id"]
         dag_duration = GaugeMetricFamily(
             "airflow_dag_run_duration",
             "Duration of successful dag_runs in seconds",
-            labels=["dag_id"],
+            labels=labels,
         )
+
         for dag in get_dag_duration_info():
-            dag_duration_value = (
-                dag.end_date - dag.start_date
-            ).total_seconds()
-            dag_duration.add_metric([dag.dag_id], dag_duration_value)
+            k, v = get_dag_labels(dag.dag_id)
+            dag_duration._labelnames = labels + k
+
+            dag_duration_value = (dag.end_date - dag.start_date).total_seconds()
+            dag_duration.add_metric([dag.dag_id] + v, dag_duration_value)
         yield dag_duration
 
         # Scheduler Metrics
+        labels = ["dag_id"]
         dag_scheduler_delay = GaugeMetricFamily(
             "airflow_dag_scheduler_delay",
             "Airflow DAG scheduling delay",
-            labels=["dag_id"],
+            labels=labels,
         )
 
         for dag in get_dag_scheduler_delay():
+            k, v = get_dag_labels(dag.dag_id)
+            dag_scheduler_delay._labelnames = labels + k
+
             dag_scheduling_delay_value = (
                 dag.start_date - dag.execution_date
             ).total_seconds()
-            dag_scheduler_delay.add_metric(
-                [dag.dag_id], dag_scheduling_delay_value
-            )
+            dag_scheduler_delay.add_metric([dag.dag_id] + v, dag_scheduling_delay_value)
         yield dag_scheduler_delay
 
         # XCOM parameters
+        labels = ["dag_id", "task_id"]
 
         xcom_params = GaugeMetricFamily(
-            "airflow_xcom_parameter",
-            "Airflow Xcom Parameter",
-            labels=["dag_id", "task_id"],
+            "airflow_xcom_parameter", "Airflow Xcom Parameter", labels=labels,
         )
 
         xcom_config = load_xcom_config()
         for tasks in xcom_config.get("xcom_params", []):
+            k, v = get_dag_labels(task.dag_id)
+            xcom_params._labelnames = labels + k
+
             for param in get_xcom_params(tasks["task_id"]):
                 xcom_value = extract_xcom_parameter(param.value)
 
                 if tasks["key"] in xcom_value:
                     xcom_params.add_metric(
-                        [param.dag_id, param.task_id], xcom_value[tasks["key"]]
+                        [param.dag_id, param.task_id] + v, xcom_value[tasks["key"]]
                     )
 
         yield xcom_params
@@ -460,9 +465,7 @@ class MetricsCollector(object):
             task_scheduling_delay_value = (
                 task.start_date - task.queued_dttm
             ).total_seconds()
-            task_scheduler_delay.add_metric(
-                [task.queue], task_scheduling_delay_value
-            )
+            task_scheduler_delay.add_metric([task.queue], task_scheduling_delay_value)
         yield task_scheduler_delay
 
         num_queued_tasks_metric = GaugeMetricFamily(
@@ -479,23 +482,19 @@ REGISTRY.register(MetricsCollector())
 if RBAC:
     from flask_appbuilder import BaseView as FABBaseView, expose as FABexpose
 
-
     class RBACMetrics(FABBaseView):
         route_base = "/admin/metrics/"
 
-        @FABexpose('/')
+        @FABexpose("/")
         def list(self):
-            return Response(generate_latest(), mimetype='text')
+            return Response(generate_latest(), mimetype="text")
 
     # Metrics View for Flask app builder used in airflow with rbac enabled
-    RBACmetricsView = {
-        "view": RBACMetrics(),
-        "name": "Metrics",
-        "category": "Public"
-    }
+    RBACmetricsView = {"view": RBACMetrics(), "name": "Metrics", "category": "Public"}
     ADMIN_VIEW = []
     RBAC_VIEW = [RBACmetricsView]
 else:
+
     class Metrics(BaseView):
         @expose("/")
         def index(self):

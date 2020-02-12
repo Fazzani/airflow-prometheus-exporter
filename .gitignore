@@ -25,3 +25,4 @@ cover/
 coverage.*
 htmlcov/
 .vagrant/
+.vscode
